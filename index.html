@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mark</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#000;--fg:#fff;--dim:#8a8a8a;--line:#2a2a2a;box-sizing:border-box}
+*,*::before,*::after{box-sizing:inherit}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px}
+.logo{font-size:26px;font-weight:700;letter-spacing:.06em}
+button{font:inherit;color:inherit;background:none;border:1px solid var(--fg);border-radius:999px;padding:8px 16px;cursor:pointer}
+button:hover{background:var(--fg);color:var(--bg)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
+main{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center}
+#orbWrap{padding:18px 0 8px}
+#orb{width:112px;height:112px;border-radius:50%;border:2px solid var(--fg);padding:0;display:grid;place-items:center;transition:box-shadow .3s}
+#orb span{width:44px;height:44px;border-radius:50%;background:var(--fg);transition:transform .3s}
+#orb:hover{background:none}
+body[data-s=listening] #orb{box-shadow:0 0 0 10px #ffffff22,0 0 40px #ffffff55}
+body[data-s=listening] #orb span{animation:p 1s ease-in-out infinite}
+body[data-s=thinking] #orb span{animation:p 0.5s ease-in-out infinite alternate}
+body[data-s=speaking] #orb{box-shadow:0 0 0 6px #ffffff33}
+@keyframes p{50%{transform:scale(1.35)}}
+@media (prefers-reduced-motion:reduce){#orb span{animation:none!important}}
+#status{color:var(--dim);font-size:14px;min-height:20px;margin:4px 0 8px}
+#log{flex:1;min-height:0;width:100%;max-width:720px;overflow-y:auto;padding:8px 20px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:85%;padding:10px 14px;border-radius:16px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.u{align-self:flex-end;background:var(--fg);color:var(--bg)}
+.a{align-self:flex-start;border:1px solid var(--line)}
+form{display:flex;gap:8px;width:100%;max-width:720px;padding:10px 20px}
+input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--fg);border-radius:999px;padding:11px 16px}
+input::placeholder{color:var(--dim)}
+footer{text-align:center;color:var(--dim);font-size:13px;padding:8px 0 12px}
+dialog{background:var(--bg);color:var(--fg);border:1px solid var(--fg);border-radius:20px;max-width:440px;width:calc(100% - 32px);max-height:85dvh;padding:22px}
+dialog::backdrop{background:#000c}
+dialog h2{margin:0 0 12px;font-size:20px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.row small{display:block;color:var(--dim)}
+.soon{opacity:.45}
+.close{margin-top:16px;width:100%}
+</style>
+</head>
+<body data-s="idle">
+<header>
+  <div class="logo">Mark</div>
+  <button id="aboutBtn" type="button">A propos</button>
+</header>
+
+<main>
+  <div id="orbWrap"><button id="orb" type="button" aria-label="Parler à Mark"><span></span></button></div>
+  <div id="status">Touchez le cercle pour parler</div>
+  <div id="log" aria-live="polite"></div>
+  <form id="f">
+    <button id="permBtn" type="button" aria-label="Autorisations">Accès</button>
+    <input id="txt" type="text" placeholder="Écrivez à Mark…" autocomplete="off">
+    <button type="submit">Envoyer</button>
+  </form>
+</main>
+
+<footer>by Trillion Software</footer>
+
+<dialog id="about">
+  <h2>A propos</h2>
+  <p style="color:var(--dim)">Le contenu arrive bientôt.</p>
+  <button class="close" id="aboutClose" type="button">Fermer</button>
+</dialog>
+
+<dialog id="perms">
+  <h2>Autorisations</h2>
+  <p style="color:var(--dim);margin-top:0">Mark n'accède à rien sans votre accord. Vous choisissez, vous pouvez refuser.</p>
+  <div id="permList"></div>
+  <h2 style="margin-top:20px">Version Android (bientôt)</h2>
+  <div class="row soon"><div>Décrocher les appels<small>Réservé à l'app Android</small></div></div>
+  <div class="row soon"><div>Verrouiller le téléphone<small>Jamais le déverrouiller</small></div></div>
+  <div class="row soon"><div>Publier sur vos réseaux sociaux<small>Après connexion de chaque compte</small></div></div>
+  <button class="close" id="permClose" type="button">Fermer</button>
+</dialog>
+
+<script>
+(()=>{
+const CONFIG={
+  aiUrl:'https://text.pollinations.ai/openai', // service gratuit sans clé ; remplaçable par votre propre serveur
+  model:'openai',
+  lang:(navigator.language||'fr-FR').toLowerCase().startsWith('fr')?'fr-FR':navigator.language
+};
+const SYS="Tu es Mark, un assistant virtuel gratuit créé par Trillion Software. Réponds dans la langue de l'utilisateur, de façon claire, brève et utile, adaptée à une lecture à voix haute. Pas de markdown.";
+const $=id=>document.getElementById(id);
+const log=$('log'),status=$('status'),txt=$('txt');
+let history=[],recog=null,listening=false;
+
+const setS=(s,t)=>{document.body.dataset.s=s;if(t!==undefined)status.textContent=t};
+function add(role,text){const d=document.createElement('div');d.className='m '+(role==='user'?'u':'a');d.textContent=text;log.appendChild(d);log.scrollTop=log.scrollHeight}
+
+/* ---- Voix ---- */
+function speak(text){
+  if(!('speechSynthesis' in window))return setS('idle','Prêt');
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);u.lang=CONFIG.lang;
+  u.onstart=()=>setS('speaking','Mark parle…');
+  u.onend=u.onerror=()=>setS('idle','Touchez le cercle pour parler');
+  speechSynthesis.speak(u);
+}
+function say(text){add('assistant',text);speak(text)}
+
+function listen(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return say("La reconnaissance vocale n'est pas disponible sur ce navigateur. Essayez Chrome, ou écrivez-moi.");
+  if(listening){recog&&recog.stop();return}
+  speechSynthesis.cancel();
+  recog=new SR();recog.lang=CONFIG.lang;recog.interimResults=false;
+  recog.onstart=()=>{listening=true;setS('listening','Je vous écoute…')};
+  recog.onend=()=>{listening=false;if(document.body.dataset.s==='listening')setS('idle','Touchez le cercle pour parler')};
+  recog.onerror=e=>{listening=false;setS('idle',e.error==='not-allowed'?"Micro refusé. Autorisez-le dans « Accès ».":"Je n'ai pas entendu. Réessayez.")};
+  recog.onresult=e=>handle(e.results[0][0].transcript);
+  recog.start();
+}
+
+/* ---- Alarme (la page doit rester ouverte) ---- */
+function beep(){
+  try{const c=new (window.AudioContext||window.webkitAudioContext)();let t=c.currentTime;
+  for(let i=0;i<6;i++){const o=c.createOscillator(),g=c.createGain();o.frequency.value=880;o.connect(g);g.connect(c.destination);g.gain.setValueAtTime(.3,t);o.start(t);o.stop(t+.25);t+=.5}}catch(e){}
+}
+function ring(label){
+  beep();speak(label);
+  if('Notification' in window&&Notification.permission==='granted')new Notification('Mark',{body:label,icon:'icon-192.png'});
+  if(navigator.vibrate)navigator.vibrate([300,150,300]);
+}
+function setAlarm(ms,label){
+  setTimeout(()=>ring(label),ms);
+  const d=new Date(Date.now()+ms);
+  say(`C'est noté : alarme à ${d.toLocaleTimeString(CONFIG.lang,{hour:'2-digit',minute:'2-digit'})}. Gardez cette page ouverte.`);
+}
+
+/* ---- Commandes locales ---- */
+const APPS={whatsapp:'https://wa.me/',youtube:'https://www.youtube.com',facebook:'https://www.facebook.com',instagram:'https://www.instagram.com',tiktok:'https://www.tiktok.com',gmail:'https://mail.google.com',maps:'https://maps.google.com',telegram:'https://t.me/',x:'https://x.com',twitter:'https://x.com'};
+function local(q){
+  const s=q.toLowerCase();
+  let m;
+  if(/(alarme|réveil|reveil|minuteur|timer|rappelle)/.test(s)){
+    if((m=s.match(/dans\s+(\d+)\s*(heures?|h|minutes?|min|secondes?|sec|s)\b/))){
+      const n=+m[1],u=m[2][0],ms=u==='h'?n*36e5:(u==='m'?n*6e4:n*1e3);
+      return setAlarm(ms,'Votre alarme sonne.'),true;
+    }
+    if((m=s.match(/(?:à|a)\s*(\d{1,2})\s*(?:h|:)\s*(\d{2})?/))){
+      const d=new Date();d.setHours(+m[1],+(m[2]||0),0,0);if(d<=new Date())d.setDate(d.getDate()+1);
+      return setAlarm(d-new Date(),'Votre alarme sonne.'),true;
+    }
+    return say("Dites par exemple : « alarme dans 10 minutes » ou « alarme à 7h30 »."),true;
+  }
+  if((m=s.match(/(?:appelle|appeler|call)\s+(?:le\s+)?(\+?[\d\s]{6,})/))){
+    const n=m[1].replace(/\s/g,'');say(`J'ouvre l'appel vers ${n}.`);setTimeout(()=>location.href='tel:'+n,600);return true;
+  }
+  if((m=s.match(/(?:ouvre|ouvrir|lance|open)\s+([a-z]+)/))&&APPS[m[1]]){
+    say(`J'ouvre ${m[1]}.`);setTimeout(()=>window.open(APPS[m[1]],'_blank'),600);return true;
+  }
+  if(/(publie|poste|partage)\s/.test(s)){
+    const content=q.replace(/^.*?(publie|poste|partage)\w*\s*/i,'').trim();
+    if(navigator.share){navigator.share({text:content}).catch(()=>{});say("Choisissez l'application où publier. Rien n'est envoyé sans votre validation.");}
+    else say("Le partage n'est pas disponible sur ce navigateur.");
+    return true;
+  }
+  if(/(verrouille|déverrouille|deverrouille|décroche|decroche)/.test(s)){
+    say("Verrouiller le téléphone et décrocher les appels demandent l'app Android de Mark, bientôt disponible. Dans un navigateur, c'est impossible.");return true;
+  }
+  return false;
+}
+
+/* ---- IA ---- */
+async function ask(q){
+  history.push({role:'user',content:q});
+  setS('thinking','Mark réfléchit…');
+  try{
+    const r=await fetch(CONFIG.aiUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:CONFIG.model,messages:[{role:'system',content:SYS},...history.slice(-12)]})});
+    if(!r.ok)throw new Error(r.status);
+    const j=await r.json();
+    const a=(j.choices&&j.choices[0].message.content||'').trim()||"Je n'ai pas de réponse pour l'instant.";
+    history.push({role:'assistant',content:a});say(a);
+  }catch(e){history.pop();setS('idle','Prêt');add('assistant',"Connexion impossible. Vérifiez votre réseau et réessayez.")}
+}
+function handle(q){q=q.trim();if(!q)return;add('user',q);if(!local(q))ask(q)}
+
+/* ---- Autorisations ---- */
+const PERMS=[
+  {id:'mic',name:'Microphone',desc:"Pour vous parler",ask:async()=>{const s=await navigator.mediaDevices.getUserMedia({audio:true});s.getTracks().forEach(t=>t.stop())},q:'microphone'},
+  {id:'notif',name:'Notifications',desc:"Pour faire sonner vos alarmes",ask:()=>Notification.requestPermission(),q:'notifications'},
+  {id:'geo',name:'Localisation',desc:"Pour répondre selon votre position",ask:()=>new Promise((ok,ko)=>navigator.geolocation.getCurrentPosition(ok,ko)),q:'geolocation'},
+  {id:'contacts',name:'Contacts',desc:"Pour appeler un contact choisi par vous",ask:async()=>{const c=await navigator.contacts.select(['name','tel']);if(c[0]&&c[0].tel[0])say(`Contact choisi : ${c[0].name[0]}. Dites « appelle ${c[0].tel[0]} ».`)},supported:()=>'contacts' in navigator}
+];
+async function state(p){
+  if(p.supported&&!p.supported())return 'Indisponible';
+  if(p.id==='contacts')return 'Sur demande';
+  try{const r=await navigator.permissions.query({name:p.q});return r.state==='granted'?'Autorisé':r.state==='denied'?'Refusé':'Non demandé'}catch(e){return 'Non demandé'}
+}
+async function renderPerms(){
+  const box=$('permList');box.textContent='';
+  for(const p of PERMS){
+    const st=await state(p),row=document.createElement('div');row.className='row';
+    const l=document.createElement('div');l.textContent=p.name;const sm=document.createElement('small');sm.textContent=`${p.desc} · ${st}`;l.appendChild(sm);
+    const b=document.createElement('button');b.type='button';b.textContent=p.id==='contacts'?'Choisir':'Autoriser';
+    if(st==='Indisponible'||st==='Autorisé')b.disabled=true,b.style.opacity=.4;
+    b.onclick=async()=>{try{await p.ask()}catch(e){}renderPerms()};
+    row.append(l,b);box.appendChild(row);
+  }
+}
+
+/* ---- Événements ---- */
+$('orb').onclick=listen;
+$('f').onsubmit=e=>{e.preventDefault();const v=txt.value;txt.value='';handle(v)};
+$('aboutBtn').onclick=()=>$('about').showModal();
+$('aboutClose').onclick=()=>$('about').close();
+$('permBtn').onclick=()=>{renderPerms();$('perms').showModal()};
+$('permClose').onclick=()=>$('perms').close();
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+add('assistant',"Bonjour, je suis Mark. Posez-moi une question, touchez le cercle pour me parler, ou dites « alarme dans 5 minutes ».");
+})();
+</script>
+</body>
+</html>
